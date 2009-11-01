@@ -1,6 +1,29 @@
 module ActionView
   module Helpers
-    
+    class JRailsConfig
+			cattr_accessor :use_google_cdn, :jrails_assets, :google_assets
+			@@use_google_cdn = false
+			@@jrails_assets = ['jquery','jquery-ui','jrails']
+			@@google_assets = ['http://ajax.googleapis.com/ajax/libs/jquery/1.3.2/jquery.min.js','http://ajax.googleapis.com/ajax/libs/jqueryui/1.7.2/jquery-ui.min.js','jrails']
+			
+			class << self
+				def get_js_assets
+					self.use_google_cdn ? self.google_assets : self.jrails_assets
+				end
+
+				def use_google_cdn=(bool)
+					@@use_google_cdn = bool
+					reset_javascript_defaults
+				end
+
+				def reset_javascript_defaults
+					ActionView::Helpers::AssetTagHelper.const_set("JAVASCRIPT_DEFAULT_SOURCES", self.get_js_assets)
+					ActionView::Helpers::AssetTagHelper::reset_javascript_include_default
+				end
+			end
+			
+		end
+		
     module JavaScriptHelper
       
       # This function can be used to render rjs inline
@@ -94,6 +117,14 @@ module ActionView
           def remove(*ids)
             call "#{JQUERY_VAR}(\"#{jquery_ids(ids)}\").remove"
           end
+
+					def remove_class_name(id, *klass)
+						call "#{JQUERY_VAR}(\"#{jquery_ids(id)}\").removeClass", klass
+					end
+					
+					def add_class_name(id, *klass)
+						call "#{JQUERY_VAR}(\"#{jquery_ids(id)}\").addClass", klass
+					end
           
           def show(*ids)
             call "#{JQUERY_VAR}(\"#{jquery_ids(ids)}\").show"
@@ -227,6 +258,30 @@ module ActionView
       end
       
     end
+
+		class JavaScriptProxy < ActiveSupport::BasicObject #:nodoc:
+
+			def add_class_name(klass)
+				call "addClass", klass
+			end
+
+			def remove_class_name(klass)
+				call "removeClass", klass
+			end
+		end
+
+		class JavaScriptVariableProxy < JavaScriptProxy #:nodoc:
+			unless const_defined? :JQUERY_VAR
+				JQUERY_VAR = PrototypeHelper::JQUERY_VAR
+			end
+
+			private
+			def append_to_function_chain!(call)
+				@generator << "#{JQUERY_VAR}(#{@variable})" if @empty
+				@empty = false
+				super
+			end
+		end
     
     class JavaScriptElementProxy < JavaScriptProxy #:nodoc:
       
@@ -270,6 +325,23 @@ module ActionView
       
       def initialize(generator, pattern)
         super(generator, "#{JQUERY_VAR}(#{pattern.to_json})")
+      end
+
+			def enumerate(enumerable, options = {}, &block)
+        options[:method_args] ||= []
+        options[:yield_args]  ||= []
+				options[:yield_args].push("el").delete("value")
+        yield_args  = options[:yield_args] * ', '
+        method_args = arguments_for_call options[:method_args] # foo, bar, function
+        method_args << ', ' unless method_args.blank?
+        add_variable_assignment!(options[:variable]) if options[:variable]
+        	append_enumerable_function!("#{enumerable.to_s.camelize(:lower)}(#{method_args}function(#{yield_args}) {")
+				
+        # only yield as many params as were passed in the block
+        yield(*options[:yield_args].collect { |p| JavaScriptVariableProxy.new(@generator, p) }[1..block.arity])
+        add_return_statement! if options[:return]
+        @generator << '});'
+				
       end
     end
     
