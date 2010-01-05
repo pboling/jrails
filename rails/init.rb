@@ -13,3 +13,4 @@
 require 'jrails'
 require 'jquery_selector_assertions' if RAILS_ENV == 'test'
 ActionView::Helpers::JRailsConfig.reset_javascript_defaults
+ActionController::Base.helper Themeroller
